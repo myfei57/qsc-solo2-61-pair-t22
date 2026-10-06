@@ -24,7 +24,6 @@ from .cycle import run_cycle
 from .http import Request, RequestError, Response, csv_response, json_response, text_response
 from .report import dashboard, text_report
 from .routes import route_table
-from .simulate import run_simulation
 from .system import system_payload
 from .version import version_payload
 
@@ -758,7 +757,67 @@ def cycle(server: "Server", request: Request) -> Response:
 
 
 def simulate(server: "Server", request: Request) -> Response:
-    return run_simulation(server.runtime, request)
+    result = server.simulations.run(request)
+    return json_response(
+        {
+            "round_id": result["round_id"],
+            "replayed": result.get("replayed", False),
+            "resumed_ticks": result.get("resumed_ticks", 0),
+            **result["report"],
+        }
+    )
+
+
+def simulate_resume(server: "Server", request: Request) -> Response:
+    round_id = request.str_field("round_id") or request.query_field("round_id")
+    if not round_id:
+        raise RequestError(400, "round_id is required")
+    try:
+        result = server.simulations.resume(round_id)
+    except KeyError:
+        raise RequestError(404, f"simulation round {round_id} not found") from None
+    return json_response(
+        {
+            "round_id": result["round_id"],
+            "replayed": result.get("replayed", False),
+            "resumed_ticks": result.get("resumed_ticks", 0),
+            **result["report"],
+        }
+    )
+
+
+def simulate_rounds(server: "Server", request: Request) -> Response:
+    return json_response({"rounds": server.simulations.list_rounds()})
+
+
+def simulate_round(server: "Server", request: Request) -> Response:
+    round_id = request.query_field("round_id")
+    if not round_id:
+        raise RequestError(400, "round_id is required")
+    try:
+        return json_response(server.simulations.get_round(round_id))
+    except KeyError:
+        raise RequestError(404, f"simulation round {round_id} not found") from None
+
+
+def simulate_replay(server: "Server", request: Request) -> Response:
+    round_id = request.query_field("round_id")
+    if not round_id:
+        raise RequestError(400, "round_id is required")
+    try:
+        return json_response(server.simulations.replay(round_id))
+    except KeyError:
+        raise RequestError(404, f"simulation round {round_id} not found") from None
+
+
+def simulate_export(server: "Server", request: Request) -> Response:
+    round_id = request.query_field("round_id")
+    if not round_id:
+        raise RequestError(400, "round_id is required")
+    try:
+        return json_response(server.simulations.export_round(round_id))
+    except KeyError:
+        raise RequestError(404, f"simulation round {round_id} not found") from None
 
 
 def export_audit(server: "Server", request: Request) -> Response:

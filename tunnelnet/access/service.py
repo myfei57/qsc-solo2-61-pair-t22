@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from typing import Protocol
 
 from tunnelnet.store import Approval, Store, approval_exists, save_approval
@@ -25,17 +26,29 @@ def _stamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _new_id() -> str:
+    return uuid.uuid4().hex
+
+
 class AccessService:
     """Submits entry requests and grants them in the durable order."""
 
-    def __init__(self, store: Store, doors: DoorController) -> None:
+    def __init__(
+        self,
+        store: Store,
+        doors: DoorController,
+        new_id: Callable[[], str] = _new_id,
+        clock: Callable[[], str] = _stamp,
+    ) -> None:
         self._store = store
         self._doors = doors
+        self._new_id = new_id
+        self._clock = clock
         self._lock = threading.RLock()
         self._requests: list[AccessRequest] = []
 
     def submit(self, cabin_id: str, requester: str) -> AccessRequest:
-        request = AccessRequest(id=uuid.uuid4().hex, cabin_id=cabin_id, requester=requester)
+        request = AccessRequest(id=self._new_id(), cabin_id=cabin_id, requester=requester)
         with self._lock:
             self._requests.append(request)
         return request
@@ -48,10 +61,10 @@ class AccessService:
         """Persist the approval first, then release the cabin door."""
 
         approval = Approval(
-            id=uuid.uuid4().hex,
+            id=self._new_id(),
             cabin_id=cabin_id,
             requester=requester,
-            granted_at=_stamp(),
+            granted_at=self._clock(),
         )
         save_approval(self._store, approval)
         self._doors.release_door(cabin_id)

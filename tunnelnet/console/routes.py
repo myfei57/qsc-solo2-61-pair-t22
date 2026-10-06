@@ -123,11 +123,58 @@ def route_table() -> list[Route]:
         Route("GET", "/api/store/stats", "record counts per kind", "store_stats"),
         Route("GET", "/api/store/export", "export stored records", "store_export"),
         Route("POST", "/api/cycle", "run one full control cycle", "cycle"),
-        Route("POST", "/api/simulate", "run deterministic simulation ticks", "simulate"),
+        Route(
+            "POST",
+            "/api/simulate",
+            "run an isolated deterministic simulation round",
+            "simulate",
+        ),
+        Route(
+            "POST",
+            "/api/simulate/resume",
+            "resume an interrupted simulation round",
+            "simulate_resume",
+        ),
+        Route("GET", "/api/simulate/rounds", "list simulation rounds", "simulate_rounds"),
+        Route(
+            "GET",
+            "/api/simulate/round",
+            "fetch one simulation round (snapshot, journal, report)",
+            "simulate_round",
+        ),
+        Route(
+            "GET",
+            "/api/simulate/replay",
+            "replay a round and verify it reproduces the recorded result",
+            "simulate_replay",
+        ),
+        Route(
+            "GET",
+            "/api/simulate/export",
+            "export one self-contained simulation round bundle",
+            "simulate_export",
+        ),
         Route("GET", "/api/export/audit", "audit trail as CSV", "export_audit"),
         Route("GET", "/api/export/telemetry", "telemetry counters as CSV", "export_telemetry"),
         Route("GET", "/api/export/store", "store record counts as CSV", "export_store"),
     ]
+
+
+# POST endpoints that mutate the live runtime. These are serialized against
+# snapshot capture by the server write gate. Simulation endpoints are excluded:
+# they snapshot under a read scope and mutate only an isolated clone.
+SIMULATION_ROUTE_PATHS = frozenset(
+    {
+        "/api/simulate",
+        "/api/simulate/resume",
+    }
+)
+
+MUTATING_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    (route.method, route.path)
+    for route in route_table()
+    if route.method == "POST" and route.path not in SIMULATION_ROUTE_PATHS
+)
 
 
 def register_routes(router: Router, handlers: ModuleType) -> None:

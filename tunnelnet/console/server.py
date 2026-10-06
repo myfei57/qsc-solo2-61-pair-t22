@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import os
 from typing import Callable, Iterable
 
+from tunnelnet.sim import SimulationManager
+from tunnelnet.sim.gate import WriteGate
 from tunnelnet.store import Store
 
 from . import handlers
 from .http import Request, RequestError, Response, Router, build_request, error_response
 from .metrics import Metrics
 from .pages import load_page, page_file, root_redirect
-from .routes import register_routes
+from .routes import MUTATING_ROUTES, register_routes
 from .runtime import Runtime
 from .seed import seed_defaults
 
@@ -24,6 +27,9 @@ class Server:
         self.web_dir = web_dir
         self.router = Router()
         self.metrics = Metrics()
+        self.write_gate = WriteGate()
+        rounds_root = os.path.join(os.path.dirname(store.root), "sim-rounds")
+        self.simulations = SimulationManager(self.runtime, rounds_root, self.write_gate)
         register_routes(self.router, handlers)
 
     def respond(self, request: Request) -> Response:
@@ -48,8 +54,17 @@ class Server:
                     405, f"method {request.method} not allowed for {request.path}"
                 )
             return error_response(404, f"no route for {request.path}")
+        # Serialize online mutations against snapshot capture. The simulation
+        # endpoints themselves only take a read snapshot and run on a clone, so
+        # they are not treated as online writers.
+        scope = (
+            self.write_gate.write()
+            if request.method == "POST" and (request.method, request.path) in MUTATING_ROUTES
+            else _NullGate()
+        )
         try:
-            return handler(self, request)
+            with scope:
+                return handler(self, request)
         except RequestError as exc:
             return error_response(exc.status, exc.message)
         except ValueError as exc:
@@ -90,3 +105,11 @@ def create_application(store: Store, web_dir: str = "web") -> Server:
     """Build a ready to serve console for the supplied store."""
 
     return Server(store, web_dir)
+
+
+class _NullGate:
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *exc: object) -> None:
+        return None

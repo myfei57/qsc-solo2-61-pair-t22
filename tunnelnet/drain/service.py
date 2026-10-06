@@ -11,7 +11,7 @@ from tunnelnet.store import Store
 from . import analysis
 from .model import DrainCycle, Pit
 from .report import DrainState, PitState, pit_state
-from .retry import CommandGuard
+from .retry import CommandGuard, utc_now
 
 DEFAULT_THRESHOLD = 0.5
 
@@ -33,10 +33,16 @@ class PumpController(Protocol):
 class DrainService:
     """Sequences sump drainage and de-duplicates repeated commands."""
 
-    def __init__(self, valve: ValveController, pump: PumpController, store: Store) -> None:
+    def __init__(
+        self,
+        valve: ValveController,
+        pump: PumpController,
+        store: Store,
+        clock: Callable[[], str] = utc_now,
+    ) -> None:
         self._valve = valve
         self._pump = pump
-        self._guard = CommandGuard(store)
+        self._guard = CommandGuard(store, clock)
         self._lock = threading.RLock()
         self._pits: dict[str, Pit] = {}
         self._cycles: list[DrainCycle] = []
