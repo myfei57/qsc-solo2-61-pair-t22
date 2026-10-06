@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+from contextlib import contextmanager
+
 from tunnelnet.access import AccessService
 from tunnelnet.audit import AuditRegistry, MarkSet
 from tunnelnet.cabin import PartitionTable, PowerBook, Registry as CabinRegistry, SuppressionLog
@@ -24,6 +27,10 @@ class Runtime:
 
     def __init__(self, store: Store) -> None:
         self.store = store
+        # Barrier used to take a coherent offline-simulation fork: writers that
+        # mutate live state take it briefly, so a fork sees one consistent state
+        # instead of a mix of old and new component values.
+        self.snapshot_barrier = threading.RLock()
         self.namespaces = NamespaceRegistry()
         self.cabins = CabinRegistry()
         self.partitions = PartitionTable()
@@ -41,3 +48,13 @@ class Runtime:
         self.power_book = PowerBook()
         self.quota = QuotaService(self.cabins, self.power_book)
         self.audit = AuditRegistry()
+
+    @contextmanager
+    def write_barrier(self):
+        """Serialise an online mutation against an in-progress state fork."""
+
+        self.snapshot_barrier.acquire()
+        try:
+            yield
+        finally:
+            self.snapshot_barrier.release()
